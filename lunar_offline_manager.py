@@ -15,6 +15,7 @@ import shutil
 import hashlib
 import tempfile
 import argparse
+import datetime
 import subprocess
 import urllib.request
 import urllib.error
@@ -85,13 +86,72 @@ def resolve_skin(skin_name: str):
     return get_offline_uuid(skin_name), None, "classic"
 
 
-def load_accounts():
+def get_valid_expiry() -> str:
+    """
+    Computes an ISO-8601 UTC timestamp 7 days in the future.
+    Critical requirements:
+    1. Launcher requires (now < expiresAt) - cannot be expired.
+    2. In-game lunar.jar requires (expiresAt <= now + 14 days) - if > 14 days,
+       lunar.jar marks the account as 'invalid (2)' and deletes it!
+    7 days from now satisfies both launcher and in-game checks perfectly.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return (now + datetime.timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def refresh_offline_accounts(data=None, save_if_modified: bool = True):
+    """
+    Refreshes accessTokenExpiresAt and ensures refreshToken is set for all offline accounts.
+    Ensures accounts never expire and always pass lunar.jar validation.
+    """
+    save_needed = False
+    if data is None:
+        data = load_accounts(auto_refresh=False)
+        save_needed = True
+
+    accounts = data.get("accounts", {})
+    if not isinstance(accounts, dict):
+        accounts = {}
+        data["accounts"] = accounts
+
+    new_expiry = get_valid_expiry()
+
+    for lid, acc in list(accounts.items()):
+        is_offline = (
+            lid.startswith("offline_")
+            or str(acc.get("accessToken", "")).startswith("offline")
+            or str(acc.get("refreshToken", "")).startswith("offline")
+        )
+        if is_offline:
+            if not acc.get("refreshToken"):
+                acc["refreshToken"] = f"offline_refresh_{lid}"
+                save_needed = True
+            if not acc.get("accessToken"):
+                acc["accessToken"] = f"offline_token_{lid}"
+                save_needed = True
+            if acc.get("accessTokenExpiresAt") != new_expiry:
+                acc["accessTokenExpiresAt"] = new_expiry
+                save_needed = True
+            if acc.get("type") != "Xbox":
+                acc["type"] = "Xbox"
+                save_needed = True
+
+    if save_needed and save_if_modified:
+        save_accounts(data)
+
+    return data
+
+
+def load_accounts(auto_refresh: bool = True):
     """Loads accounts from accounts.json."""
     if not ACCOUNTS_FILE.exists():
         return {"activeAccountLocalId": None, "accounts": {}}
     try:
         with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if auto_refresh and data.get("accounts"):
+            refresh_offline_accounts(data, save_if_modified=True)
+        return data
     except Exception:
         return {"activeAccountLocalId": None, "accounts": {}}
 
@@ -119,12 +179,13 @@ def add_offline_account(username: str, skin_name: str = ""):
     local_id = f"offline_{hashlib.sha256(username.encode()).hexdigest()[:12]}"
     account_entry = {
         "accessToken": f"offline_token_{local_id}",
-        "accessTokenExpiresAt": "2099-12-31T23:59:59.000Z",
+        "accessTokenExpiresAt": get_valid_expiry(),
         "localId": local_id,
         "minecraftProfile": {
             "id": skin_uuid,
             "name": username
         },
+        "refreshToken": f"offline_refresh_{local_id}",
         "remoteId": f"remote_{local_id}",
         "type": "Xbox",
         "username": username,
@@ -236,6 +297,12 @@ def patch_main_js(code_text: str) -> str:
     r3 = "XV=async(e,t)=>{if(!e)throw new zB(WB.NO_ACCOUNT,`No account found for getting Lunar Client Token`);if(e.accessToken?.startsWith(`offline`))return`offline-jwt`;"
     if t3 in code_text and "offline-jwt" not in code_text:
         code_text = code_text.replace(t3, r3)
+
+    # 4. Handle refreshAccountInternal for offline accounts so token refreshes don't fail
+    t4 = "async refreshAccountInternal(e){if(!e.refreshToken)throw new zB(WB.INVALID_SESSION,"
+    r4 = "async refreshAccountInternal(e){if(e.accessToken?.startsWith(`offline`)){nV.info(`[Offline] Account ${e.minecraftProfile?.name} refreshed locally.`);e.accessTokenExpiresAt=new Date(Date.now()+7*864e5).toISOString();let i=await pV();if(i.accounts[e.localId]){i.accounts[e.localId].accessTokenExpiresAt=e.accessTokenExpiresAt;await mV(i);}return e;}if(!e.refreshToken)throw new zB(WB.INVALID_SESSION,"
+    if t4 in code_text and "refreshed locally" not in code_text:
+        code_text = code_text.replace(t4, r4)
 
     return code_text
 
@@ -350,8 +417,8 @@ def patch_appimage(appimage_path: Path, progress_callback=None):
             f.seek(p_base + int(node["offset"]))
             main_code = f.read(int(node["size"])).decode("utf-8", errors="ignore")
 
-        if "[Offline] Account" in main_code:
-            log("[i] AppImage is already patched for offline play!")
+        if "[Offline] Account" in main_code and "refreshed locally" in main_code:
+            log("[i] AppImage is already fully patched for offline play!")
             return True
 
         patched_code = patch_main_js(main_code)
@@ -390,8 +457,10 @@ def patch_appimage(appimage_path: Path, progress_callback=None):
                 shutil.copyfileobj(sf, out_f)
 
         os.chmod(repack_appimage, 0o755)
-        shutil.move(str(repack_appimage), str(appimage_path))
-        os.chmod(appimage_path, 0o755)
+        target_tmp = appimage_path.with_name(appimage_path.name + ".tmp")
+        shutil.copy2(repack_appimage, target_tmp)
+        os.chmod(target_tmp, 0o755)
+        os.replace(target_tmp, appimage_path)
 
         log(f"[✓] Successfully patched {appimage_path.name}!")
         return True
@@ -399,6 +468,7 @@ def patch_appimage(appimage_path: Path, progress_callback=None):
 
 def launch_lunar_client(appimage_path: Path):
     """Launches Lunar Client AppImage in background."""
+    refresh_offline_accounts()
     print(f"[*] Launching {appimage_path}...")
     subprocess.Popen([str(appimage_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 

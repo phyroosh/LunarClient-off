@@ -1,6 +1,6 @@
 # 🌙 Lunar Client Offline Manager (Linux & Windows)
 
-A clean, native, and reliable offline account manager and patcher for **Lunar Client** on Linux (Fedora, Arch, Ubuntu, Debian) and Windows.
+A clean, native, and reliable offline account manager and patcher for **Lunar Client** on **all Linux distributions** (Arch, Fedora, Ubuntu, Linux Mint, Debian, openSUSE, and more) and Windows.
 
 Allows you to play Minecraft offline with **custom usernames**, choose **any player's skin** (e.g. `Technoblade`, `Dream`, `MumboJumbo`, or custom names), and patches Lunar Client without breaking updates, corrupted hosts files, or socket crashes.
 
@@ -12,9 +12,25 @@ Allows you to play Minecraft offline with **custom usernames**, choose **any pla
 - 🎨 **Skin Support via Mojang API**: Enter any Minecraft player's name in "Skin Name" and the tool will fetch their real Mojang UUID and textures so your skin renders both **in-game** and on Lunar Client's **topbar avatar**.
 - 🛠️ **Non-Breaking AppImage Patcher**: Cleanly patches Lunar Client's internal authentication handler in `resources/app.asar` so offline accounts bypass Mojang license servers without affecting launcher stability or game files.
 - 🔄 **Safe & Reversible**: Automatically keeps a backup (`Lunar_Client.AppImage.bak`) before applying any patch.
-- 🖥️ **KDE Plasma Dark Theme GUI**: Built-in graphical user interface matching modern dark themes (Breeze Dark / Adwaita).
-- ⚡ **Full CLI Support**: Fast command-line interface for terminal users and automation.
+- 🖥️ **Adaptive Dark Theme GUI**: Built-in graphical user interface matching modern dark themes (KDE Breeze Dark, GNOME Adwaita, Cinnamon, etc.) with automatic distro branding.
+- ⌨️ **Interactive Terminal Menu (CLI)**: Zero-dependency interactive menu for terminal enthusiasts, headless servers, or environments without Tkinter.
 - 🚀 **1-Click Launch**: Directly launch Lunar Client with your active offline account.
+- 🌐 **Universal Linux Compatibility**: Fully automated installer and runtime support across all major package managers (`pacman`, `dnf`, `apt`, `zypper`, `apk`, `xbps`).
+
+---
+
+## 🐧 Multi-Distro Support & Prerequisites
+
+The installer automatically detects your distro and installs all prerequisites for you. If you prefer to install packages manually, see below:
+
+| Distribution | Package Manager | Install Command |
+| :--- | :--- | :--- |
+| **Arch Linux / Manjaro / EndeavourOS** | `pacman` | `sudo pacman -S --needed python tk squashfs-tools fuse2` |
+| **Fedora / RHEL / Rocky / AlmaLinux** | `dnf` | `sudo dnf install python3 python3-tkinter squashfs-tools fuse-libs` |
+| **Ubuntu / Debian / Linux Mint / Pop!_OS** | `apt` | `sudo apt update && sudo apt install python3 python3-tk squashfs-tools libfuse2` *(or `libfuse2t64` on 24.04+)* |
+| **openSUSE (Tumbleweed / Leap)** | `zypper` | `sudo zypper install python3 python3-tk squashfs fuse` |
+| **Alpine Linux** | `apk` | `sudo apk add python3 py3-tkinter squashfs-tools fuse` |
+| **Void Linux** | `xbps` | `sudo xbps-install -y python3 python3-tkinter squashfs-tools fuse` |
 
 ---
 
@@ -29,10 +45,10 @@ cd Lunarclient-off
 ```
 
 The installer will:
-1. Verify Python 3 and `squashfs-tools`.
-2. Install the `lunar-offline` command into `~/.local/bin/`.
-3. Add a desktop shortcut to your Application Launcher (KDE Kickoff / GNOME App Grid).
-4. Automatically detect and patch your Lunar Client AppImage.
+1. Detect your Linux distribution and automatically install dependencies (`python3`, `tkinter`, `squashfs-tools`, `libfuse2`).
+2. Install the `lunar-offline` command into `~/.local/bin/` and configure your shell `PATH` (`bash`, `zsh`, `fish`).
+3. Install high-resolution application icons and a desktop shortcut into your Application Launcher (KDE Kickoff, GNOME App Grid, Cinnamon, XFCE).
+4. Automatically search for Lunar Client AppImage across standard directories and offer to patch it immediately.
 
 ---
 
@@ -43,7 +59,7 @@ The installer will:
   ```bash
   lunar-offline
   ```
-- **Add Account**: Enter your desired **Username** and optional **Skin Name / Player** (e.g. `Technoblade`, `Dream`, `Steve`, etc.), then click **➕ Add / Update**.
+- **Add Account**: Enter your desired **Username** and optional **Skin Name / Player** (e.g. `Technoblade`, `Dream`, `Steve`), then click **➕ Add / Update**.
 - **Switch Active Account**: Select an account and click **⭐ Set as Active** (or double-click it).
 - **Delete an Account**:
   - Select the account and click the red **🗑️ Delete Account** button, OR
@@ -52,11 +68,45 @@ The installer will:
 - **Remove All Accounts**: Click **🧹 Remove All** (or right-click -> Remove All Accounts).
 - **Launch Game**: Click **🚀 Launch Lunar Client**!
 
-### 2. Command Line (CLI)
+---
+
+### 2. Interactive Terminal Menu (CLI Menu)
+
+If you're over SSH, prefer the terminal, or don't have graphical libraries:
+
+```bash
+lunar-offline menu
+# or
+lunar-offline cli
+```
+
+Presents a clean, numbered interactive menu:
+```text
+=======================================================
+     🌙 Lunar Client Offline Manager (CLI Menu)
+=======================================================
+  1. Add / Update Offline Account
+  2. List Configured Accounts
+  3. Set Active Account
+  4. Delete an Account
+  5. Remove ALL Accounts
+  6. Apply Offline Patch to AppImage
+  7. Launch Lunar Client
+  8. Exit
+-------------------------------------------------------
+Please select an option (1-8):
+```
+
+---
+
+### 3. Command Line (CLI Direct Commands)
 
 ```bash
 # Open graphical manager:
 lunar-offline gui
+
+# Open interactive terminal menu:
+lunar-offline menu
 
 # Add an offline account with a skin:
 lunar-offline add <Username> [SkinName]
@@ -104,7 +154,7 @@ For Windows 11 / 10 users:
 
 ## 🛠️ Uninstallation
 
-To remove the CLI command and desktop shortcut:
+To remove the CLI command, desktop shortcut, and application icons:
 
 ```bash
 ./uninstall.sh

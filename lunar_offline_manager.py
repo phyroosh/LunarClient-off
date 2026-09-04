@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Lunar Client Offline Manager for Fedora Linux
-=============================================
+Lunar Client Offline Manager for Linux (Arch, Fedora, Ubuntu, Mint, Debian & all distros)
+========================================================================================
 Allows adding and managing offline Minecraft accounts with custom skin names
 and patching Lunar Client AppImage to enable offline play without breaking the launcher.
 """
@@ -275,13 +275,48 @@ def delete_all_accounts():
 
 
 def find_appimage(custom_path: str = None) -> Path:
-    """Finds Lunar Client AppImage on the system."""
+    """Finds Lunar Client AppImage across all standard Linux paths and desktop directories."""
     if custom_path and Path(custom_path).is_file():
         return Path(custom_path)
-    for p in DEFAULT_APPIMAGE_LOCATIONS:
+
+    # 1. Exact common paths across distros (Fedora, Arch, Ubuntu, Mint, Debian, etc.)
+    candidates = [
+        HOME / "Lunar client" / "Lunar_Client.AppImage",
+        HOME / "LunarClient" / "Lunar_Client.AppImage",
+        HOME / "Applications" / "Lunar_Client.AppImage",
+        HOME / "Downloads" / "Lunar_Client.AppImage",
+        HOME / "Desktop" / "Lunar_Client.AppImage",
+        HOME / ".local" / "bin" / "Lunar_Client.AppImage",
+        HOME / ".local" / "share" / "applications" / "Lunar_Client.AppImage",
+        Path("/usr/local/bin/Lunar_Client.AppImage"),
+        Path("/opt/Lunar Client/Lunar_Client.AppImage"),
+        Path("/opt/lunarclient/Lunar_Client.AppImage"),
+        Path.cwd() / "Lunar_Client.AppImage",
+    ]
+    for p in candidates:
         if p.is_file():
             return p
-    raise FileNotFoundError("Could not locate Lunar Client AppImage. Please specify its path.")
+
+    # 2. Case-insensitive search in common directories
+    search_dirs = [
+        HOME / "Lunar client",
+        HOME / "LunarClient",
+        HOME / "Applications",
+        HOME / "Downloads",
+        HOME / "Desktop",
+        HOME / ".local" / "bin",
+        Path.cwd(),
+    ]
+    for d in search_dirs:
+        if d.is_dir():
+            try:
+                for item in d.iterdir():
+                    if item.is_file() and item.name.lower().endswith(".appimage") and "lunar" in item.name.lower():
+                        return item
+            except Exception:
+                pass
+
+    raise FileNotFoundError("Could not locate Lunar Client AppImage. Please specify its path with --appimage.")
 
 
 # ==============================================================================
@@ -487,15 +522,59 @@ def launch_lunar_client(appimage_path: Path):
 # GUI Implementation (KDE Plasma Dark Theme Tkinter)
 # ==============================================================================
 
+def get_distro_display_name() -> str:
+    """Returns a friendly distro name like 'Fedora Linux', 'Arch Linux', 'Ubuntu', etc."""
+    try:
+        os_release = Path("/etc/os-release")
+        if os_release.is_file():
+            with open(os_release, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("NAME="):
+                        return line.split("=", 1)[1].strip().strip('"')
+    except Exception:
+        pass
+    return "Linux"
+
+
 def run_gui():
-    import tkinter as tk
-    from tkinter import ttk, messagebox
+    try:
+        import tkinter as tk
+        from tkinter import ttk, messagebox
+    except ImportError:
+        print("\n" + "=" * 65)
+        print("  [!] Notice: Python Tkinter is not installed on this system.")
+        print("  To enable the graphical interface, install it with:")
+        print("    • Ubuntu / Debian / Mint:  sudo apt install python3-tk")
+        print("    • Fedora / RHEL / Rocky:   sudo dnf install python3-tkinter")
+        print("    • Arch / Manjaro:          sudo pacman -S tk")
+        print("    • openSUSE:                sudo zypper install python3-tk")
+        print("=" * 65)
+        print("[*] Starting interactive terminal menu instead...\n")
+        run_interactive_cli()
+        return
+
     import io
 
     root = tk.Tk()
     root.title("Lunar Client Offline Manager")
     root.geometry("680x560")
     root.minsize(640, 520)
+
+    # Window icon
+    icon_candidates = [
+        Path(__file__).parent / "icon.png",
+        HOME / ".local" / "share" / "icons" / "hicolor" / "512x512" / "apps" / "lunar-offline.png",
+        HOME / ".local" / "share" / "icons" / "hicolor" / "512x512" / "apps" / "lunarclient.png",
+        HOME / ".local" / "share" / "pixmaps" / "lunar-offline.png",
+    ]
+    for ic in icon_candidates:
+        if ic.is_file():
+            try:
+                win_icon = tk.PhotoImage(file=str(ic))
+                root.iconphoto(False, win_icon)
+                break
+            except Exception:
+                pass
 
     # Style colors (KDE Breeze Dark inspired)
     BG_DARK = "#232629"
@@ -539,7 +618,8 @@ def run_gui():
     lbl_title = tk.Label(header_frame, text="🌙 Lunar Client Offline Manager", bg=BG_DARK, fg=FG_TEXT, font=("Sans", 16, "bold"))
     lbl_title.pack(side="left")
 
-    lbl_sub = tk.Label(header_frame, text="Fedora KDE Edition", bg=BG_DARK, fg=ACCENT_BLUE, font=("Sans", 10, "italic"))
+    distro_name = get_distro_display_name()
+    lbl_sub = tk.Label(header_frame, text=f"{distro_name} Edition", bg=BG_DARK, fg=ACCENT_BLUE, font=("Sans", 10, "italic"))
     lbl_sub.pack(side="left", padx=10, pady=(4, 0))
 
     # Notebook / Tabs
@@ -772,15 +852,102 @@ def run_gui():
 
 
 # ==============================================================================
+# Interactive CLI Menu (Zero Dependencies, works on any Linux terminal/distro)
+# ==============================================================================
+
+def run_interactive_cli():
+    """Interactive command-line interface when GUI is not available or requested."""
+    while True:
+        print("\n" + "=" * 55)
+        print("     🌙 Lunar Client Offline Manager (CLI Menu)")
+        print("=" * 55)
+        print("  1. Add / Update Offline Account")
+        print("  2. List Configured Accounts")
+        print("  3. Set Active Account")
+        print("  4. Delete an Account")
+        print("  5. Remove ALL Accounts")
+        print("  6. Apply Offline Patch to AppImage")
+        print("  7. Launch Lunar Client")
+        print("  8. Exit")
+        print("-" * 55)
+        try:
+            choice = input("Please select an option (1-8): ").strip()
+            if choice == "1":
+                user = input("Enter Minecraft Username: ").strip()
+                if not user:
+                    print("[!] Username cannot be empty.")
+                    continue
+                skin = input("Enter Skin Player Name (or press Enter to use same): ").strip()
+                acc = add_offline_account(user, skin)
+                print(f"[✓] Added and activated offline account '{acc['username']}'.")
+            elif choice == "2":
+                data = load_accounts()
+                active_id = data.get("activeAccountLocalId")
+                accounts = data.get("accounts", {})
+                print(f"\nTotal Accounts: {len(accounts)}")
+                print("-" * 40)
+                for lid, acc in accounts.items():
+                    act = " [ACTIVE]" if lid == active_id else ""
+                    print(f"• {acc.get('username')}{act} (UUID: {acc.get('minecraftProfile', {}).get('id', '')[:8]}...)")
+            elif choice == "3":
+                acc_name = input("Enter Username or ID to set active: ").strip()
+                if acc_name:
+                    try:
+                        acc = set_active_account(acc_name)
+                        print(f"[✓] Set '{acc['username']}' as active account.")
+                    except Exception as e:
+                        print(f"[!] {e}")
+            elif choice == "4":
+                acc_name = input("Enter Username or ID to delete: ").strip()
+                if acc_name:
+                    try:
+                        username = delete_account(acc_name)
+                        print(f"[✓] Deleted account '{username}'.")
+                    except Exception as e:
+                        print(f"[!] {e}")
+            elif choice == "5":
+                confirm = input("Are you sure you want to remove ALL accounts? (y/N): ").strip()
+                if confirm.lower() in ("y", "yes"):
+                    delete_all_accounts()
+                    print("[✓] All accounts have been removed.")
+            elif choice == "6":
+                custom_path = input("Enter AppImage path (or press Enter for auto-detect): ").strip()
+                try:
+                    target = find_appimage(custom_path if custom_path else None)
+                    print(f"[*] Patching {target}...")
+                    patch_appimage(target)
+                except Exception as e:
+                    print(f"[!] Error: {e}")
+            elif choice == "7":
+                try:
+                    target = find_appimage()
+                    launch_lunar_client(target)
+                except Exception as e:
+                    print(f"[!] Error: {e}")
+            elif choice in ("8", "exit", "q", "quit"):
+                print("Goodbye!")
+                break
+            else:
+                print("[!] Invalid choice. Please enter 1-8.")
+        except (KeyboardInterrupt, EOFError):
+            print("\nExiting...")
+            break
+
+
+# ==============================================================================
 # CLI Implementation
 # ==============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Lunar Client Offline Manager for Fedora Linux")
+    parser = argparse.ArgumentParser(description="Lunar Client Offline Manager for Linux (Arch, Fedora, Ubuntu, Mint, Debian & all distros)")
     subparsers = parser.add_subparsers(dest="command")
 
     # GUI command
     subparsers.add_parser("gui", help="Open the graphical interface (default)")
+
+    # Interactive CLI menu
+    for cmd in ("menu", "cli", "interactive"):
+        subparsers.add_parser(cmd, help="Open interactive terminal menu")
 
     # Add command
     add_parser = subparsers.add_parser("add", help="Add or update an offline account")
@@ -814,7 +981,9 @@ def main():
         if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
             run_gui()
         else:
-            parser.print_help()
+            run_interactive_cli()
+    elif args.command in ("menu", "cli", "interactive"):
+        run_interactive_cli()
     elif args.command == "add":
         acc = add_offline_account(args.username, args.skin)
         print(f"[✓] Added offline account: {acc['username']}")

@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.AppImage
+*.AppImage.bak
+*.squashfs
+*.log
+.DS_Store

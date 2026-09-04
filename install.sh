@@ -114,6 +114,16 @@ done
 
 if [ -n "$LUNAR_APPIMAGE" ]; then
     echo "[*] Found Lunar Client AppImage at: ${LUNAR_APPIMAGE}"
+
+    # Fix unquoted spaces in official lunar-client.desktop if present
+    LUNAR_DESKTOP="${APPS_DIR}/lunar-client.desktop"
+    if [ -f "$LUNAR_DESKTOP" ]; then
+        if grep -q 'Exec=[^"].* [^"].*' "$LUNAR_DESKTOP" 2>/dev/null; then
+            sed -i "s|Exec=.*|Exec=\"${LUNAR_APPIMAGE}\" %U|" "$LUNAR_DESKTOP"
+            echo "[*] Fixed unquoted path with spaces in ${LUNAR_DESKTOP}"
+        fi
+    fi
+
     read -p "Would you like to apply the offline patch to it now? (Y/n): " DO_PATCH
     DO_PATCH=${DO_PATCH:-Y}
     if [[ "$DO_PATCH" =~ ^[Yy]$ ]]; then

@@ -43,10 +43,14 @@ The installer will:
   ```bash
   lunar-offline
   ```
-- Enter your desired **Username** (e.g. `Phyroosh`).
-- (Optional) Enter a **Skin Name** of a player whose skin you want to use (e.g. `Technoblade`, `Dream`, `Steve`, etc.). If left blank, it defaults to your username.
-- Click **➕ Add / Update**.
-- Click **🚀 Launch Lunar Client**!
+- **Add Account**: Enter your desired **Username** and optional **Skin Name / Player** (e.g. `Technoblade`, `Dream`, `Steve`, etc.), then click **➕ Add / Update**.
+- **Switch Active Account**: Select an account and click **⭐ Set as Active** (or double-click it).
+- **Delete an Account**:
+  - Select the account and click the red **🗑️ Delete Account** button, OR
+  - Right-click the account and choose **Delete Account**, OR
+  - Select the account and press the **`<Delete>`** or **`<BackSpace>`** key on your keyboard.
+- **Remove All Accounts**: Click **🧹 Remove All** (or right-click -> Remove All Accounts).
+- **Launch Game**: Click **🚀 Launch Lunar Client**!
 
 ### 2. Command Line (CLI)
 
@@ -67,8 +71,17 @@ lunar-offline list
 # Switch the active account:
 lunar-offline set-active Phyroosh
 
-# Delete an account:
+# Delete/remove a specific account:
 lunar-offline delete Player123
+lunar-offline remove Player123
+lunar-offline rm Player123
+
+# Interactive account deletion prompt:
+lunar-offline delete
+
+# Remove ALL accounts at once:
+lunar-offline delete --all
+lunar-offline remove --all
 
 # Apply offline patch to Lunar Client AppImage:
 lunar-offline patch

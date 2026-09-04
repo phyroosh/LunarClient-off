@@ -242,9 +242,9 @@ def set_active_account(username_or_id: str):
     return accounts[target_id]
 
 
-def delete_account(username_or_id: str):
-    """Removes an account from accounts.json."""
-    data = load_accounts()
+def delete_account(username_or_id: str) -> str:
+    """Removes an account from accounts.json by username or localId. Returns deleted username."""
+    data = load_accounts(auto_refresh=False)
     accounts = data.get("accounts", {})
     target_id = None
 
@@ -256,10 +256,20 @@ def delete_account(username_or_id: str):
     if not target_id:
         raise ValueError(f"Account '{username_or_id}' not found.")
 
+    deleted_name = accounts[target_id].get("username", target_id)
     del accounts[target_id]
     if data.get("activeAccountLocalId") == target_id:
         data["activeAccountLocalId"] = next(iter(accounts.keys()), None)
 
+    save_accounts(data)
+    return deleted_name
+
+
+def delete_all_accounts():
+    """Removes all accounts from accounts.json."""
+    data = load_accounts(auto_refresh=False)
+    data["accounts"] = {}
+    data["activeAccountLocalId"] = None
     save_accounts(data)
     return True
 
@@ -566,6 +576,10 @@ def run_gui():
 
     tk.Label(list_frame, text="Configured Accounts", bg=BG_CARD, fg=FG_TEXT, font=("Sans", 11, "bold")).pack(anchor="w", pady=(0, 5))
 
+    # Action Buttons inside Accounts List (docked to bottom so ALWAYS visible)
+    btn_row = tk.Frame(list_frame, bg=BG_CARD, pady=8)
+    btn_row.pack(fill="x", side="bottom")
+
     list_container = tk.Frame(list_frame, bg=BG_CARD)
     list_container.pack(fill="both", expand=True)
 
@@ -581,7 +595,7 @@ def run_gui():
         nonlocal account_keys
         acc_listbox.delete(0, tk.END)
         account_keys = []
-        data = load_accounts()
+        data = load_accounts(auto_refresh=False)
         active_id = data.get("activeAccountLocalId")
         accounts = data.get("accounts", {})
         for lid, acc in accounts.items():
@@ -622,26 +636,60 @@ def run_gui():
     def on_delete_account():
         sel = acc_listbox.curselection()
         if not sel:
-            messagebox.showwarning("Select Account", "Please select an account to delete.")
+            messagebox.showwarning("Select Account", "Please select an account from the list to delete.")
             return
         target_lid = account_keys[sel[0]]
-        if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this account?"):
+        data = load_accounts(auto_refresh=False)
+        acc_name = data.get("accounts", {}).get(target_lid, {}).get("username", target_lid)
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete offline account '{acc_name}'?"):
             delete_account(target_lid)
             refresh_accounts()
-            status_var.set("Account deleted.")
+            status_var.set(f"Account '{acc_name}' deleted.")
+            messagebox.showinfo("Deleted", f"Account '{acc_name}' was removed.")
 
-    # Action Buttons inside Accounts List
-    btn_row = tk.Frame(list_frame, bg=BG_CARD, pady=10)
-    btn_row.pack(fill="x")
+    def on_delete_all():
+        if not account_keys:
+            messagebox.showinfo("No Accounts", "There are no accounts to remove.")
+            return
+        if messagebox.askyesno("Confirm Delete All", "Are you sure you want to remove ALL offline accounts?"):
+            delete_all_accounts()
+            refresh_accounts()
+            status_var.set("All accounts removed.")
+            messagebox.showinfo("Removed", "All offline accounts have been removed.")
 
+    # Context Menu for right-click on accounts list
+    ctx_menu = tk.Menu(acc_listbox, tearoff=0, bg=BG_CARD, fg=FG_TEXT, activebackground=ACCENT_BLUE, activeforeground="#ffffff")
+    ctx_menu.add_command(label="⭐ Set as Active", command=on_set_active)
+    ctx_menu.add_command(label="🗑️ Delete Account", command=on_delete_account)
+    ctx_menu.add_separator()
+    ctx_menu.add_command(label="🧹 Remove All Accounts", command=on_delete_all)
+
+    def on_right_click(event):
+        idx = acc_listbox.nearest(event.y)
+        if idx >= 0 and idx < len(account_keys):
+            acc_listbox.selection_clear(0, tk.END)
+            acc_listbox.selection_set(idx)
+            acc_listbox.activate(idx)
+            ctx_menu.tk_popup(event.x_root, event.y_root)
+
+    acc_listbox.bind("<Button-3>", on_right_click)
+    acc_listbox.bind("<Delete>", lambda e: on_delete_account())
+    acc_listbox.bind("<BackSpace>", lambda e: on_delete_account())
+    acc_listbox.bind("<Double-Button-1>", lambda e: on_set_active())
+    acc_listbox.bind("<Return>", lambda e: on_set_active())
+
+    # Buttons in Accounts List
     btn_add = tk.Button(form_card, text="➕ Add / Update", bg=ACCENT_GREEN, fg="#ffffff", activebackground="#219150", activeforeground="#ffffff", font=("Sans", 9, "bold"), relief="flat", bd=0, padx=12, pady=6, command=on_add_account)
     btn_add.grid(row=4, column=1, sticky="w", padx=10, pady=8)
 
-    btn_active = tk.Button(btn_row, text="⭐ Set as Active", bg=ACCENT_BLUE, fg="#ffffff", activebackground="#2980b9", activeforeground="#ffffff", font=("Sans", 9, "bold"), relief="flat", bd=0, padx=10, pady=5, command=on_set_active)
-    btn_active.pack(side="left", padx=(0, 10))
+    btn_active = tk.Button(btn_row, text="⭐ Set as Active", bg=ACCENT_BLUE, fg="#ffffff", activebackground="#2980b9", activeforeground="#ffffff", font=("Sans", 9, "bold"), relief="flat", bd=0, padx=12, pady=6, command=on_set_active)
+    btn_active.pack(side="left", padx=(0, 8))
 
-    btn_del = tk.Button(btn_row, text="🗑️ Delete", bg=ACCENT_RED, fg="#ffffff", activebackground="#c0392b", activeforeground="#ffffff", font=("Sans", 9, "bold"), relief="flat", bd=0, padx=10, pady=5, command=on_delete_account)
-    btn_del.pack(side="left")
+    btn_del = tk.Button(btn_row, text="🗑️ Delete Account", bg=ACCENT_RED, fg="#ffffff", activebackground="#c0392b", activeforeground="#ffffff", font=("Sans", 9, "bold"), relief="flat", bd=0, padx=12, pady=6, command=on_delete_account)
+    btn_del.pack(side="left", padx=(0, 8))
+
+    btn_del_all = tk.Button(btn_row, text="🧹 Remove All", bg="#5a6268", fg="#ffffff", activebackground="#4e555b", activeforeground="#ffffff", font=("Sans", 9), relief="flat", bd=0, padx=10, pady=6, command=on_delete_all)
+    btn_del_all.pack(side="left")
 
     # --- TAB 2: PATCHER & SETTINGS ---
     patch_card = tk.Frame(tab_patcher, bg=BG_CARD, bd=1, relief="ridge", padx=15, pady=15)
@@ -746,9 +794,11 @@ def main():
     set_parser = subparsers.add_parser("set-active", help="Set the active account")
     set_parser.add_argument("account", help="Username or account ID")
 
-    # Delete command
-    del_parser = subparsers.add_parser("delete", help="Delete an account")
-    del_parser.add_argument("account", help="Username or account ID")
+    # Delete / Remove commands
+    for cmd in ("delete", "remove", "rm"):
+        del_parser = subparsers.add_parser(cmd, help="Delete an account (or --all to remove all)")
+        del_parser.add_argument("account", nargs="?", default="", help="Username or account ID to delete (interactive if omitted)")
+        del_parser.add_argument("--all", "-a", action="store_true", help="Remove all accounts")
 
     # Patch command
     patch_parser = subparsers.add_parser("patch", help="Patch Lunar Client AppImage for offline play")
@@ -786,9 +836,44 @@ def main():
     elif args.command == "set-active":
         acc = set_active_account(args.account)
         print(f"[✓] Set '{acc['username']}' as active account.")
-    elif args.command == "delete":
-        delete_account(args.account)
-        print(f"[✓] Deleted account '{args.account}'.")
+    elif args.command in ("delete", "remove", "rm"):
+        if args.all:
+            delete_all_accounts()
+            print("[✓] All offline accounts have been removed.")
+        elif args.account:
+            username = delete_account(args.account)
+            print(f"[✓] Deleted account '{username}'.")
+        else:
+            # Interactive prompt if no account argument was passed
+            data = load_accounts(auto_refresh=False)
+            accounts = data.get("accounts", {})
+            if not accounts:
+                print("[i] No configured accounts found.")
+                return
+            acc_items = list(accounts.items())
+            print("\nConfigured Accounts:")
+            for idx, (lid, acc) in enumerate(acc_items, start=1):
+                active_mark = " [ACTIVE]" if lid == data.get("activeAccountLocalId") else ""
+                print(f"  {idx}. {acc.get('username')}{active_mark} (ID: {lid})")
+            print(f"  {len(acc_items) + 1}. Remove ALL accounts")
+            print(f"  0. Cancel")
+            try:
+                choice = input(f"\nPlease enter an option to delete (0-{len(acc_items) + 1}): ").strip()
+                if choice in ("0", "cancel", "c", ""):
+                    print("Cancelled.")
+                    return
+                c_int = int(choice)
+                if 1 <= c_int <= len(acc_items):
+                    target_lid, target_acc = acc_items[c_int - 1]
+                    username = delete_account(target_lid)
+                    print(f"[✓] Deleted account '{username}'.")
+                elif c_int == len(acc_items) + 1:
+                    delete_all_accounts()
+                    print("[✓] All offline accounts have been removed.")
+                else:
+                    print("[!] Invalid option.")
+            except (ValueError, EOFError, KeyboardInterrupt):
+                print("\nCancelled.")
     elif args.command == "patch":
         target = Path(args.appimage) if args.appimage else find_appimage()
         print(f"[*] Target AppImage: {target}")

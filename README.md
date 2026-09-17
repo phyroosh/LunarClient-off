@@ -39,8 +39,8 @@ The installer automatically detects your distro and installs all prerequisites f
 If you ever reinstall your OS on a fresh drive or want to set this up quickly, simply run:
 
 ```bash
-git clone https://github.com/phyrooshcodes/Lunarclient-off.git
-cd Lunarclient-off
+git clone https://github.com/phyroosh/LunarClient-off.git
+cd LunarClient-off
 ./install.sh
 ```
 

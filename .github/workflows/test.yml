@@ -1,0 +1,123 @@
+name: Cross-Platform CI (Windows & Linux)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-windows:
+    name: Windows 10/11 Compatibility Test
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Python Engine Unit Tests on Windows
+        run: |
+          python tests/test_offline_engine.py
+
+      - name: Test LunarOffline.bat CLI on Windows CMD
+        shell: cmd
+        run: |
+          echo === Testing LunarOffline.bat ===
+          call LunarOffline.bat list
+          call LunarOffline.bat add WinPlayer Technoblade
+          call LunarOffline.bat list
+          call LunarOffline.bat set-active WinPlayer
+          call LunarOffline.bat delete WinPlayer
+          call LunarOffline.bat list
+
+      - name: Test Native PowerShell Script (scripts\lunar_offline_gui.ps1)
+        shell: powershell
+        run: |
+          Write-Host "=== Testing PowerShell Offline Engine ==="
+          powershell -ExecutionPolicy Bypass -File .\scripts\lunar_offline_gui.ps1 -Command add -Username "PsPlayer" -Skin "Dream"
+          powershell -ExecutionPolicy Bypass -File .\scripts\lunar_offline_gui.ps1 -Command list
+          powershell -ExecutionPolicy Bypass -File .\scripts\lunar_offline_gui.ps1 -Command set-active -Username "PsPlayer"
+          powershell -ExecutionPolicy Bypass -File .\scripts\lunar_offline_gui.ps1 -Command delete -Username "PsPlayer"
+          powershell -ExecutionPolicy Bypass -File .\scripts\lunar_offline_gui.ps1 -Command list
+
+      - name: Test PowerShell Native ASAR Patching
+        shell: powershell
+        run: |
+          # Create a dummy app.asar
+          New-Item -ItemType Directory -Path "test_asar" -Force | Out-Null
+          $js = [System.Text.Encoding]::UTF8.GetBytes('console.log("start");const p={invalid:!e.refreshToken};try{nV.info(`Validating account ${r.minecraftProfile.name} owns Minecraft...`);}XV=async(e,t)=>{if(!e)throw new zB(WB.NO_ACCOUNT,`No account found for getting Lunar Client Token`);}async refreshAccountInternal(e){if(!e.refreshToken)throw new zB(WB.INVALID_SESSION,')
+          $header = @{
+            files = @{
+              "dist-electron" = @{
+                files = @{
+                  electron = @{
+                    files = @{
+                      "main.js" = @{
+                        size = $js.Length
+                        offset = "0"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          $hdrJson = $header | ConvertTo-Json -Depth 10 -Compress
+          $hdrBytes = [System.Text.Encoding]::UTF8.GetBytes($hdrJson)
+          $pad = (4 - ($hdrBytes.Length % 4)) % 4
+          if ($pad -gt 0) { $hdrBytes += ([System.Text.Encoding]::UTF8.GetBytes(" " * $pad)) }
+          $jLen = [uint32]$hdrBytes.Length
+
+          $fs = [System.IO.File]::Open("test_asar\app.asar", [System.IO.FileMode]::Create)
+          $bw = New-Object System.IO.BinaryWriter($fs)
+          $bw.Write([uint32]4)
+          $bw.Write([uint32]($jLen + 8))
+          $bw.Write([uint32]($jLen + 4))
+          $bw.Write($jLen)
+          $bw.Write($hdrBytes)
+          $bw.Write($js)
+          $fs.Close()
+
+          # Run patch via PowerShell
+          powershell -ExecutionPolicy Bypass -File .\scripts\lunar_offline_gui.ps1 -Command patch -Target "test_asar\app.asar"
+
+          # Verify backup and patch
+          if (-not (Test-Path "test_asar\app.asar.bak")) { throw "Backup app.asar.bak was not created!" }
+          $content = [System.IO.File]::ReadAllText("test_asar\app.asar")
+          if (-not $content.Contains("[Offline] Account")) { throw "Patch not found in app.asar!" }
+          Write-Host "[✓] Windows PowerShell ASAR patcher passed verification!"
+
+  test-linux:
+    name: Linux Distro Compatibility Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools python3-tk
+
+      - name: Run Engine Unit Tests on Linux
+        run: |
+          python tests/test_offline_engine.py
+
+      - name: Test CLI Commands on Linux
+        run: |
+          python lunar_offline_manager.py list
+          python lunar_offline_manager.py add LinuxUser Steve
+          python lunar_offline_manager.py list
+          python lunar_offline_manager.py set-active LinuxUser
+          python lunar_offline_manager.py delete LinuxUser
+          python lunar_offline_manager.py list

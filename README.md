@@ -145,16 +145,55 @@ lunar-offline launch
 
 ---
 
-## 🪟 Windows Users
+## 🪟 Windows Setup & Usage (Windows 10 & 11)
 
-For Windows 11 / 10 users:
-- Run `FixLunarOffline.bat` to restore and initialize offline functionality.
+No complicated setup or `.exe` installer is needed! Simply double-click the included `.bat` file to open the Graphical User Interface:
+
+### 1. 1-Click Graphical Interface (GUI)
+- Double-click **`LunarOffline.bat`** (or **`FixLunarOffline.bat`**) to open the GUI.
+- **Zero-Dependency Guarantee**:
+  - If **Python 3** is installed on your PC, it immediately launches the fast Tkinter Dark Theme GUI.
+  - If Python is **not** installed, it automatically launches the built-in native **PowerShell GUI** (works on 100% of Windows 10 and 11 computers out of the box with no extra downloads!).
+  - You can also optionally install Python in 15 seconds via `winget install --id Python.Python.3.12 -e`.
+- **Features in the Windows GUI**:
+  - 👤 **Add / Update Accounts**: Type your username and skin name, click **➕ Add / Update**.
+  - ⭐ **Set Active Account**: Choose an account and click **Set as Active** (or double-click it).
+  - 🗑️ **Delete Account**: Remove individual accounts or all accounts with confirmation.
+  - 🛠️ **1-Click ASAR Patcher**: Click **Apply Offline Patch / Fix** to patch `%LOCALAPPDATA%\Programs\lunarclient\resources\app.asar`. A backup (`app.asar.bak`) is created automatically.
+  - 🚀 **Launch**: Click **🚀 Launch Lunar Client** to play offline immediately!
+
+### 2. Windows Command Line (CMD / PowerShell)
+You can also run all actions directly from Command Prompt or PowerShell:
+
+```cmd
+:: Open Graphical Interface:
+LunarOffline.bat
+
+:: Add account with custom skin:
+LunarOffline.bat add Phyroosh Technoblade
+LunarOffline.bat add Player123 Dream
+
+:: List configured accounts:
+LunarOffline.bat list
+
+:: Set active account:
+LunarOffline.bat set-active Phyroosh
+
+:: Delete an account:
+LunarOffline.bat delete Player123
+
+:: Apply offline patch to app.asar:
+LunarOffline.bat patch
+
+:: Launch Lunar Client:
+LunarOffline.bat launch
+```
 
 ---
 
 ## 🛠️ Uninstallation
 
-To remove the CLI command, desktop shortcut, and application icons:
+To remove the Linux desktop shortcut, icons, and command:
 
 ```bash
 ./uninstall.sh
@@ -165,3 +204,4 @@ To remove the CLI command, desktop shortcut, and application icons:
 ## 📄 License
 
 MIT License. Designed for offline play and personal customization.
+

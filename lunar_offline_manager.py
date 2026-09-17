@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Lunar Client Offline Manager for Linux (Arch, Fedora, Ubuntu, Mint, Debian & all distros)
-========================================================================================
+Lunar Client Offline Manager for Windows & Linux
+=================================================
 Allows adding and managing offline Minecraft accounts with custom skin names
-and patching Lunar Client AppImage to enable offline play without breaking the launcher.
+and patching Lunar Client to enable offline play without breaking the launcher.
+Supports: Windows 10/11 and all Linux distributions (Arch, Fedora, Ubuntu, Mint, Debian, etc.).
 """
 
 import sys
@@ -21,12 +22,20 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-# Paths
+# System & Paths
+IS_WINDOWS = sys.platform == "win32"
 HOME = Path.home()
 LUNAR_DIR = HOME / ".lunarclient"
 GAME_SETTINGS_DIR = LUNAR_DIR / "settings" / "game"
 ACCOUNTS_FILE = GAME_SETTINGS_DIR / "accounts.json"
 SAVED_SKINS_FILE = GAME_SETTINGS_DIR / "saved_skins.json"
+
+if IS_WINDOWS:
+    LOCALAPPDATA = Path(os.environ.get("LOCALAPPDATA", str(HOME / "AppData" / "Local")))
+    PROGRAMFILES = Path(os.environ.get("ProgramFiles", "C:\\Program Files"))
+else:
+    LOCALAPPDATA = HOME / ".local" / "share"
+    PROGRAMFILES = Path("/usr/local")
 
 DEFAULT_APPIMAGE_LOCATIONS = [
     HOME / "Lunar client" / "Lunar_Client.AppImage",
@@ -319,6 +328,89 @@ def find_appimage(custom_path: str = None) -> Path:
     raise FileNotFoundError("Could not locate Lunar Client AppImage. Please specify its path with --appimage.")
 
 
+def find_windows_asar(custom_path: str = None) -> Path:
+    """Finds Lunar Client resources/app.asar on Windows."""
+    if custom_path and Path(custom_path).is_file():
+        p = Path(custom_path)
+        if p.name.lower() == "app.asar":
+            return p
+        if p.name.lower().endswith(".exe"):
+            possible = p.parent / "resources" / "app.asar"
+            if possible.is_file():
+                return possible
+        return p
+
+    candidates = [
+        LOCALAPPDATA / "Programs" / "lunarclient" / "resources" / "app.asar",
+        LOCALAPPDATA / "Programs" / "Lunar Client" / "resources" / "app.asar",
+        PROGRAMFILES / "Lunar Client" / "resources" / "app.asar",
+        HOME / "AppData" / "Local" / "Programs" / "lunarclient" / "resources" / "app.asar",
+        HOME / "AppData" / "Local" / "Programs" / "Lunar Client" / "resources" / "app.asar",
+        Path("C:/Users") / HOME.name / "AppData/Local/Programs/lunarclient/resources/app.asar",
+        Path("C:/Users") / HOME.name / "AppData/Local/Programs/Lunar Client/resources/app.asar",
+        Path.cwd() / "resources" / "app.asar",
+        Path.cwd() / "app.asar",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+
+    # Search in Programs
+    for base in [LOCALAPPDATA / "Programs", PROGRAMFILES]:
+        if base.is_dir():
+            try:
+                for f in base.rglob("app.asar"):
+                    if "lunar" in str(f).lower():
+                        return f
+            except Exception:
+                pass
+
+    raise FileNotFoundError("Could not locate Lunar Client app.asar on Windows. Please specify its path.")
+
+
+def find_windows_launcher(custom_path: str = None) -> Path:
+    """Finds Lunar Client.exe on Windows."""
+    if custom_path and Path(custom_path).is_file():
+        p = Path(custom_path)
+        if p.name.lower().endswith(".exe"):
+            return p
+        if p.name.lower() == "app.asar":
+            possible = p.parent.parent / "Lunar Client.exe"
+            if possible.is_file():
+                return possible
+        return p
+
+    candidates = [
+        LOCALAPPDATA / "Programs" / "lunarclient" / "Lunar Client.exe",
+        LOCALAPPDATA / "Programs" / "Lunar Client" / "Lunar Client.exe",
+        PROGRAMFILES / "Lunar Client" / "Lunar Client.exe",
+        HOME / "AppData" / "Local" / "Programs" / "lunarclient" / "Lunar Client.exe",
+        HOME / "AppData" / "Local" / "Programs" / "Lunar Client" / "Lunar Client.exe",
+        Path("C:/Users") / HOME.name / "AppData/Local/Programs/lunarclient/Lunar Client.exe",
+        Path("C:/Users") / HOME.name / "AppData/Local/Programs/Lunar Client/Lunar Client.exe",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+
+    for base in [LOCALAPPDATA / "Programs", PROGRAMFILES]:
+        if base.is_dir():
+            try:
+                for f in base.rglob("Lunar Client.exe"):
+                    return f
+            except Exception:
+                pass
+
+    raise FileNotFoundError("Could not locate Lunar Client.exe on Windows.")
+
+
+def find_target(custom_path: str = None) -> Path:
+    """Finds target to patch (resources/app.asar on Windows, Lunar_Client.AppImage on Linux)."""
+    if IS_WINDOWS:
+        return find_windows_asar(custom_path)
+    return find_appimage(custom_path)
+
+
 # ==============================================================================
 # ASAR Patching Utilities
 # ==============================================================================
@@ -511,19 +603,93 @@ def patch_appimage(appimage_path: Path, progress_callback=None):
         return True
 
 
-def launch_lunar_client(appimage_path: Path):
-    """Launches Lunar Client AppImage in background."""
+def patch_windows_asar(asar_path: Path, progress_callback=None):
+    """
+    Patches resources/app.asar directly on Windows without squashfs.
+    """
+    def log(msg):
+        if progress_callback:
+            progress_callback(msg)
+        else:
+            print(msg)
+
+    if not asar_path.is_file():
+        raise FileNotFoundError(f"app.asar not found at: {asar_path}")
+
+    backup_path = asar_path.with_name("app.asar.bak")
+    if not backup_path.exists():
+        log(f"[*] Creating backup at: {backup_path.name}...")
+        shutil.copy2(asar_path, backup_path)
+
+    log("[1/3] Reading app.asar...")
+    with open(asar_path, "rb") as f:
+        h_raw = f.read(16)
+        magic, s1, s2, j_len = struct.unpack("<IIII", h_raw)
+        header = json.loads(f.read(j_len).decode("utf-8"))
+        p_base = f.tell()
+
+        node = header["files"]["dist-electron"]["files"]["electron"]["files"]["main.js"]
+        f.seek(p_base + int(node["offset"]))
+        main_code = f.read(int(node["size"])).decode("utf-8", errors="ignore")
+
+    if "[Offline] Account" in main_code and "refreshed locally" in main_code:
+        log("[i] Lunar Client is already patched for offline play!")
+        return True
+
+    log("[2/3] Applying offline patch to main.js...")
+    patched_code = patch_main_js(main_code)
+
+    log("[3/3] Writing updated app.asar...")
+    temp_asar = asar_path.with_name("app.asar.tmp")
+    update_asar_file(asar_path, "dist-electron/electron/main.js", patched_code.encode("utf-8"), temp_asar)
+
+    if temp_asar.exists():
+        os.replace(temp_asar, asar_path)
+
+    log("[✓] Successfully patched Lunar Client for Windows!")
+    return True
+
+
+def patch_target(target_path: Path = None, progress_callback=None):
+    """Applies offline patch to Lunar Client on either Windows or Linux."""
+    if IS_WINDOWS:
+        target = target_path if target_path else find_windows_asar()
+        return patch_windows_asar(target, progress_callback)
+    else:
+        target = target_path if target_path else find_appimage()
+        return patch_appimage(target, progress_callback)
+
+
+def launch_lunar_client(target_path: Path = None):
+    """Launches Lunar Client (Lunar Client.exe on Windows, AppImage on Linux)."""
     refresh_offline_accounts()
-    print(f"[*] Launching {appimage_path}...")
-    subprocess.Popen([str(appimage_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    if IS_WINDOWS:
+        exe_path = target_path if (target_path and target_path.name.lower().endswith(".exe")) else find_windows_launcher()
+        print(f"[*] Launching Lunar Client Windows: {exe_path}...")
+        subprocess.Popen([str(exe_path)])
+    else:
+        appimage_path = target_path if target_path else find_appimage()
+        print(f"[*] Launching {appimage_path} (using NVIDIA Dedicated GPU)...")
+        env = os.environ.copy()
+        env.update({
+            "__NV_PRIME_RENDER_OFFLOAD": "1",
+            "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
+            "__VK_LAYER_NV_optimus": "NVIDIA_only",
+            "VK_LOADER_DRIVERS_SELECT": "*nvidia*",
+        })
+        subprocess.Popen([str(appimage_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, env=env)
 
 
 # ==============================================================================
-# GUI Implementation (KDE Plasma Dark Theme Tkinter)
+# GUI Implementation (Dark Theme Tkinter - Windows & Linux)
 # ==============================================================================
 
 def get_distro_display_name() -> str:
-    """Returns a friendly distro name like 'Fedora Linux', 'Arch Linux', 'Ubuntu', etc."""
+    """Returns a friendly distro or OS name like 'Windows 11', 'Fedora Linux', etc."""
+    if IS_WINDOWS:
+        import platform
+        rel = platform.release()
+        return f"Windows {rel}" if rel else "Windows"
     try:
         os_release = Path("/etc/os-release")
         if os_release.is_file():
@@ -591,15 +757,15 @@ def run_gui():
     # Variables
     username_var = tk.StringVar()
     skin_var = tk.StringVar()
-    appimage_path_var = tk.StringVar()
+    target_path_var = tk.StringVar()
     status_var = tk.StringVar(value="Ready")
 
-    # Locate default AppImage
+    # Locate default Target (app.asar on Windows, AppImage on Linux)
     try:
-        default_appimage = find_appimage()
-        appimage_path_var.set(str(default_appimage))
+        default_target = find_target()
+        target_path_var.set(str(default_target))
     except Exception:
-        appimage_path_var.set("")
+        target_path_var.set("")
 
     # Styling
     style = ttk.Style()
@@ -775,35 +941,54 @@ def run_gui():
     patch_card = tk.Frame(tab_patcher, bg=BG_CARD, bd=1, relief="ridge", padx=15, pady=15)
     patch_card.pack(fill="both", expand=True)
 
-    tk.Label(patch_card, text="Lunar Client AppImage Patcher", bg=BG_CARD, fg=FG_TEXT, font=("Sans", 12, "bold")).pack(anchor="w", pady=(0, 10))
+    patcher_title = "Lunar Client Patcher & Settings"
+    tk.Label(patch_card, text=patcher_title, bg=BG_CARD, fg=FG_TEXT, font=("Sans", 12, "bold")).pack(anchor="w", pady=(0, 10))
 
-    tk.Label(patch_card, text="Target AppImage Path:", bg=BG_CARD, fg=FG_TEXT, font=("Sans", 10)).pack(anchor="w")
+    target_label_text = "Target Path (app.asar or Lunar Client.exe):" if IS_WINDOWS else "Target AppImage Path:"
+    tk.Label(patch_card, text=target_label_text, bg=BG_CARD, fg=FG_TEXT, font=("Sans", 10)).pack(anchor="w")
 
     path_row = tk.Frame(patch_card, bg=BG_CARD, pady=5)
     path_row.pack(fill="x")
 
-    ent_path = tk.Entry(path_row, textvariable=appimage_path_var, bg=BG_INPUT, fg=FG_TEXT, insertbackground=FG_TEXT, font=("Sans", 9), relief="flat", bd=4)
+    ent_path = tk.Entry(path_row, textvariable=target_path_var, bg=BG_INPUT, fg=FG_TEXT, insertbackground=FG_TEXT, font=("Sans", 9), relief="flat", bd=4)
     ent_path.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
     def on_browse():
         from tkinter import filedialog
-        f = filedialog.askopenfilename(filetypes=[("AppImage Files", "*.AppImage"), ("All Files", "*")])
+        if IS_WINDOWS:
+            f = filedialog.askopenfilename(filetypes=[("Lunar Client Files", "*.asar;*.exe"), ("ASAR Archive", "*.asar"), ("Executable", "*.exe"), ("All Files", "*")])
+        else:
+            f = filedialog.askopenfilename(filetypes=[("AppImage Files", "*.AppImage"), ("All Files", "*")])
         if f:
-            appimage_path_var.set(f)
+            target_path_var.set(f)
 
     btn_browse = tk.Button(path_row, text="Browse...", bg=BG_INPUT, fg=FG_TEXT, font=("Sans", 9), relief="flat", padx=8, pady=4, command=on_browse)
     btn_browse.pack(side="right")
 
-    info_lbl = tk.Label(patch_card, text="This patch modifies Lunar Client's internal authentication handler so that\noffline accounts are accepted directly without connecting to Mojang's license server.\nA backup (.bak) of your original AppImage will be kept automatically.", bg=BG_CARD, fg=FG_MUTED, font=("Sans", 9), justify="left")
+    if IS_WINDOWS:
+        info_text = (
+            "This patch modifies Lunar Client's internal authentication handler in app.asar so that\n"
+            "offline accounts are accepted directly without connecting to Mojang's license server.\n"
+            "A backup (app.asar.bak) of your original file will be created automatically."
+        )
+    else:
+        info_text = (
+            "This patch modifies Lunar Client's internal authentication handler so that\n"
+            "offline accounts are accepted directly without connecting to Mojang's license server.\n"
+            "A backup (.bak) of your original AppImage will be kept automatically."
+        )
+
+    info_lbl = tk.Label(patch_card, text=info_text, bg=BG_CARD, fg=FG_MUTED, font=("Sans", 9), justify="left")
     info_lbl.pack(anchor="w", pady=10)
 
     log_box = tk.Text(patch_card, height=10, bg=BG_INPUT, fg=FG_TEXT, font=("Monospace", 9), relief="flat", bd=4)
     log_box.pack(fill="both", expand=True, pady=5)
 
     def on_patch():
-        p = appimage_path_var.get().strip()
+        p = target_path_var.get().strip()
         if not p or not Path(p).is_file():
-            messagebox.showerror("Error", "Please select a valid Lunar Client AppImage file.")
+            target_name = "app.asar or Lunar Client.exe" if IS_WINDOWS else "Lunar Client AppImage"
+            messagebox.showerror("Error", f"Please select a valid {target_name} file.")
             return
 
         log_box.delete("1.0", tk.END)
@@ -813,14 +998,14 @@ def run_gui():
             root.update_idletasks()
 
         try:
-            status_var.set("Patching AppImage...")
-            patch_appimage(Path(p), progress_callback=log_cb)
+            status_var.set("Patching Lunar Client...")
+            patch_target(Path(p), progress_callback=log_cb)
             status_var.set("Patching completed successfully!")
-            messagebox.showinfo("Success", "Lunar Client AppImage patched successfully!\nYou can now launch and play offline.")
+            messagebox.showinfo("Success", "Lunar Client patched successfully!\nYou can now launch and play offline.")
         except Exception as err:
             status_var.set("Patching failed")
             log_cb(f"[ERROR] {err}")
-            messagebox.showerror("Patch Error", f"Failed to patch AppImage:\n{err}")
+            messagebox.showerror("Patch Error", f"Failed to patch Lunar Client:\n{err}")
 
     btn_do_patch = tk.Button(patch_card, text="🛠️ Apply Offline Patch / Fix", bg=ACCENT_GREEN, fg="#ffffff", activebackground="#219150", activeforeground="#ffffff", font=("Sans", 10, "bold"), relief="flat", bd=0, padx=14, pady=8, command=on_patch)
     btn_do_patch.pack(anchor="w", pady=10)
@@ -833,16 +1018,15 @@ def run_gui():
     status_lbl.pack(side="left")
 
     def on_launch():
-        p = appimage_path_var.get().strip()
-        if not p or not Path(p).is_file():
-            try:
-                p = find_appimage()
-            except Exception:
-                messagebox.showerror("Error", "Could not find Lunar Client AppImage.")
-                return
+        p = target_path_var.get().strip()
+        target = Path(p) if (p and Path(p).is_file()) else None
         status_var.set("Launching Lunar Client...")
-        launch_lunar_client(Path(p))
-        status_var.set("Lunar Client launched!")
+        try:
+            launch_lunar_client(target)
+            status_var.set("Lunar Client launched!")
+        except Exception as err:
+            status_var.set("Launch failed")
+            messagebox.showerror("Launch Error", f"Failed to launch Lunar Client:\n{err}")
 
     btn_launch = tk.Button(bottom_frame, text="🚀 Launch Lunar Client", bg=ACCENT_BLUE, fg="#ffffff", activebackground="#2980b9", activeforeground="#ffffff", font=("Sans", 10, "bold"), relief="flat", bd=0, padx=16, pady=8, command=on_launch)
     btn_launch.pack(side="right")
@@ -852,21 +1036,23 @@ def run_gui():
 
 
 # ==============================================================================
-# Interactive CLI Menu (Zero Dependencies, works on any Linux terminal/distro)
+# Interactive CLI Menu (Zero Dependencies, works on any terminal/distro)
 # ==============================================================================
 
 def run_interactive_cli():
     """Interactive command-line interface when GUI is not available or requested."""
     while True:
+        os_label = "Windows" if IS_WINDOWS else get_distro_display_name()
         print("\n" + "=" * 55)
-        print("     🌙 Lunar Client Offline Manager (CLI Menu)")
+        print(f"     🌙 Lunar Client Offline Manager ({os_label})")
         print("=" * 55)
         print("  1. Add / Update Offline Account")
         print("  2. List Configured Accounts")
         print("  3. Set Active Account")
         print("  4. Delete an Account")
         print("  5. Remove ALL Accounts")
-        print("  6. Apply Offline Patch to AppImage")
+        patch_label = "Apply Offline Patch (app.asar)" if IS_WINDOWS else "Apply Offline Patch (AppImage)"
+        print(f"  6. {patch_label}")
         print("  7. Launch Lunar Client")
         print("  8. Exit")
         print("-" * 55)
@@ -911,17 +1097,17 @@ def run_interactive_cli():
                     delete_all_accounts()
                     print("[✓] All accounts have been removed.")
             elif choice == "6":
-                custom_path = input("Enter AppImage path (or press Enter for auto-detect): ").strip()
+                target_desc = "app.asar or Lunar Client.exe" if IS_WINDOWS else "AppImage path"
+                custom_path = input(f"Enter {target_desc} (or press Enter for auto-detect): ").strip()
                 try:
-                    target = find_appimage(custom_path if custom_path else None)
+                    target = find_target(custom_path if custom_path else None)
                     print(f"[*] Patching {target}...")
-                    patch_appimage(target)
+                    patch_target(target)
                 except Exception as e:
                     print(f"[!] Error: {e}")
             elif choice == "7":
                 try:
-                    target = find_appimage()
-                    launch_lunar_client(target)
+                    launch_lunar_client()
                 except Exception as e:
                     print(f"[!] Error: {e}")
             elif choice in ("8", "exit", "q", "quit"):
@@ -939,7 +1125,7 @@ def run_interactive_cli():
 # ==============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Lunar Client Offline Manager for Linux (Arch, Fedora, Ubuntu, Mint, Debian & all distros)")
+    parser = argparse.ArgumentParser(description="Lunar Client Offline Manager for Windows & Linux (Arch, Fedora, Ubuntu, Mint, Debian & all distros)")
     subparsers = parser.add_subparsers(dest="command")
 
     # GUI command
@@ -968,17 +1154,19 @@ def main():
         del_parser.add_argument("--all", "-a", action="store_true", help="Remove all accounts")
 
     # Patch command
-    patch_parser = subparsers.add_parser("patch", help="Patch Lunar Client AppImage for offline play")
-    patch_parser.add_argument("--appimage", "-a", help="Path to Lunar_Client.AppImage (optional)")
+    patch_parser = subparsers.add_parser("patch", help="Patch Lunar Client for offline play")
+    patch_parser.add_argument("--target", "-t", help="Path to app.asar (Windows) or Lunar_Client.AppImage (Linux)")
+    patch_parser.add_argument("--appimage", "-a", help=argparse.SUPPRESS)
 
     # Launch command
-    launch_parser = subparsers.add_parser("launch", help="Launch Lunar Client AppImage")
-    launch_parser.add_argument("--appimage", "-a", help="Path to Lunar_Client.AppImage (optional)")
+    launch_parser = subparsers.add_parser("launch", help="Launch Lunar Client")
+    launch_parser.add_argument("--target", "-t", help="Path to executable or AppImage")
+    launch_parser.add_argument("--appimage", "-a", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
     if not args.command or args.command == "gui":
-        if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        if IS_WINDOWS or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
             run_gui()
         else:
             run_interactive_cli()
@@ -1044,11 +1232,13 @@ def main():
             except (ValueError, EOFError, KeyboardInterrupt):
                 print("\nCancelled.")
     elif args.command == "patch":
-        target = Path(args.appimage) if args.appimage else find_appimage()
-        print(f"[*] Target AppImage: {target}")
-        patch_appimage(target)
+        target_arg = getattr(args, "target", None) or getattr(args, "appimage", None)
+        target = find_target(target_arg)
+        print(f"[*] Target: {target}")
+        patch_target(target)
     elif args.command == "launch":
-        target = Path(args.appimage) if args.appimage else find_appimage()
+        target_arg = getattr(args, "target", None) or getattr(args, "appimage", None)
+        target = Path(target_arg) if target_arg else None
         launch_lunar_client(target)
 
 

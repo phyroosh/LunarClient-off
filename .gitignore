@@ -6,3 +6,7 @@ __pycache__/
 *.squashfs
 *.log
 .DS_Store
+dist/
+*.asar
+*.asar.bak
+test_asar/
